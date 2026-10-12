@@ -1,1 +1,36 @@
-version: '3.8'
+services:
+  # Database service and initialization service
+  db:
+    image: postgres:14.24
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db-init:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm
+    working_dir: /app
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "pip install python-dotenv sqlalchemy psycopg[binary] && PYTHONPATH=. python -m src.database.connection"
+    restart: "no"
+
+volumes:
+  postgres_data:
