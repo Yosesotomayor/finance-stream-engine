@@ -1,0 +1,22 @@
+[project]
+name = "finance-stream-engine"
+version = "0.1.0"
+description = "This is a personal project in order to learn new technologies."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "faker>=40.43.0",
+    "logging>=0.4.9.6",
+    "numpy>=2.5.4",
+    "pydantic>=2.14.1",
+    "pytest>=9.1.1",
+    "python-dotenv>=1.2.4",
+]
+
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = ["--import-mode=importlib", "--log-cli-level=INFO"]
+log_cli = true
+log_cli_level = "INFO"
+testpaths = ["tests"]
