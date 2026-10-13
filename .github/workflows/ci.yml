@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main"] # We might get rid of this in the future to avoid direct pushes to main
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main"]
+    branches: [ "main" ]
 
 jobs:
   test:
@@ -18,16 +18,12 @@ jobs:
           POSTGRES_PASSWORD: test_password
           POSTGRES_DB: test_db
         ports:
-          - "5432:5432"
-        options: --health-cmd "pg_isready -U test_user -d test_db" --health-interval 10s --health-timeout 5s --health-retries 5
-
-      redpanda:
-        image: docker.redpanda.com/redpandadata/redpanda:latest
-        ports:
-          - "9092:9092"
-          - "9644:9644"
-        command: redpanda start --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092 --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092 --rpc-addr=0.0.0.0:33145 --advertise-rpc-addr=redpanda:33145
-        options: --health-cmd "rpk cluster health" --health-interval 10s --health-timeout 5s --health-retries 10
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user -d test_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -53,7 +49,6 @@ jobs:
           POSTGRES_DB: test_db
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
-          KAFKA_BROKER: localhost:9092
           X_CLIENT_TOKEN: ci_secret_token_123
         run: |
           uv run pytest -v
