@@ -22,12 +22,6 @@ producer_config = {
 producer = Producer(producer_config)
 
 def delivery_report(err, msg):
-      """
-      Callback function to handle delivery reports from Kafka.
-
-      This function is called once for each message produced to indicate
-      whether the delivery was successful or if there was an error.
-      """
       if err is not None:
             logger.error(f"Delivery failed for record {msg.key()}: {err}")
       else:
