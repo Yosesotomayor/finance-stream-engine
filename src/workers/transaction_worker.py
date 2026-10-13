@@ -1,7 +1,7 @@
 from confluent_kafka import Consumer, KafkaError, Producer
 
 from dotenv import find_dotenv, load_dotenv
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 import json
 import os
@@ -24,27 +24,28 @@ consumer_config = {
       'enable.auto.commit': False,
 }
 
+class PoisonPillError(Exception):
+    """Excepción para datos corruptos que deben ir directo a la DLQ."""
+    pass
+
 running = True
 def process_transaction(msg):
       try:
             transaction_data = json.loads(msg.value().decode('utf-8'))
       except Exception as e:
-            logger.error(f"Failed to process transaction: {e}")
-            return False
+            logger.error(f"Failed to process transaction bad JSON: {e}")
+            raise PoisonPillError(f"Failed to decode message: {e}")
 
       try:
             with get_session() as session:
                   session.add(TransactionDBModel(**transaction_data))
                   session.commit()
-            return True
-
       except IntegrityError as e:
             logger.warning(f"Integrity error while processing transaction: {e}")
-            return True
-      
-      except Exception as e:
-            logger.error(f"Failed to process transaction: {e}")
-            return False
+            return
+      except (OperationalError, Exception) as db_error:
+            logger.error(f"Failed to process transaction DB error: {db_error}")
+            raise db_error
 
 def consume_transactions(consumer, topics, producer):
       global running
@@ -59,10 +60,12 @@ def consume_transactions(consumer, topics, producer):
                         else:
                               logger.error(f"Kafka error: {msg.error()}")
                               break
-                  success = process_transaction(msg)
-                  if success:
+
+                  try:
+                        process_transaction(msg)
                         consumer.commit(msg, asynchronous=False)
-                  else:
+                  except PoisonPillError as p_err:
+                        logger.error(f"Received poison pill: {p_err}")
                         try: 
                               raw_value = msg.value()
                               producer.produce(
@@ -75,6 +78,9 @@ def consume_transactions(consumer, topics, producer):
                         except Exception as e:
                               logger.error(f"Failed to send message to DLQ: {e}")
                         consumer.commit(msg, asynchronous=False)
+                  except Exception as dlq_err:
+                        logger.error(f"Failed to process transaction, sending to DLQ: {dlq_err}")
+
       except Exception as e:
             print(f"Error consuming transactions: {e}")
       finally:
