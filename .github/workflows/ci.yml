@@ -2,13 +2,14 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ] # Maybe we get rid of push directly to main (to train best practices)
+    branches: [ "main"] # We might get rid of this in the future to avoid direct pushes to main
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main"]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:14.24
@@ -17,29 +18,16 @@ jobs:
           POSTGRES_PASSWORD: test_password
           POSTGRES_DB: test_db
         ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          - "5432:5432"
+        options: --health-cmd "pg_isready -U test_user -d test_db" --health-interval 10s --health-timeout 5s --health-retries 5
 
       redpanda:
         image: docker.redpanda.com/redpandadata/redpanda:latest
         ports:
-          - 9092:9092
-        command:
-          - redpanda
-          - start
-          - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
-          - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
-          - --rpc-addr=0.0.0.0:33145
-          - --advertise-rpc-addr=redpanda:33145
-        options: >-
-          --health-cmd "rpk cluster health"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          - "9092:9092"
+          - "9644:9644"
+        command: redpanda start --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092 --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092 --rpc-addr=0.0.0.0:33145 --advertise-rpc-addr=redpanda:33145
+        options: --health-cmd "rpk cluster health" --health-interval 10s --health-timeout 5s --health-retries 10
 
     steps:
       - name: Checkout code
@@ -85,5 +73,5 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: false  
+          push: false
           tags: finance-stream-engine:test
