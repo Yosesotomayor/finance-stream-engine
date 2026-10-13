@@ -47,7 +47,7 @@ async def generate_transaction(
             producer.produce(
                   topic,
                   key=key,
-                  value=json.dumps(str(transaction_dict)).encode("utf-8"),
+                  value=transaction.model_dump_json().encode("utf-8"),
                   callback=delivery_report,
             )
             producer.poll(0)  # Trigger delivery report callbacks
