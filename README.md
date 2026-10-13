@@ -1,56 +1,116 @@
-# Fintech Streaming and Processing Engine
+# Finance Stream Engine
 
-A high-throughput, real-time financial transaction ingestion and processing pipeline designed to study distributed systems, event-driven architectures, asynchronous task execution, and backend infrastructure engineering.
+Finance Stream Engine is a Python 3.12 project for generating synthetic financial transactions, exposing them through a FastAPI service, and publishing them to a Redpanda topic. The local stack is orchestrated with Docker Compose and includes PostgreSQL, Redpanda, Redpanda Console, and the API service.
 
-## Architecture
-
-The system simulates a high-concurrency payment gateway. Incoming transactions hit a load balancer, are ingested immediately by a FastAPI cluster, streamed through Apache Kafka, processed asynchronously via Celery workers, cached in Redis, and persisted in PostgreSQL.
+## Current Architecture
 
 ```mermaid
 flowchart TD
-    A[Traffic Generator] -->|HTTP POST| B[Load Balancer: NGINX]
-    B --> C1[API Node 1: FastAPI]
-    B --> C2[API Node 2: FastAPI]
-
-    C1 -->|Produce Event| D[Apache Kafka]
-    C2 -->|Produce Event| D
-    D --> E[Celery Workers]
-    E -->|State| G[(Redis)]
-    E -->|Persist Transaction| F[(PostgreSQL)]
+    A[Client] -->|POST /generate_transaction| B[FastAPI API]
+    B -->|Generate payload| C[TransactionGenerator]
+    B -->|Produce event| D[Redpanda topic: transactions.stream]
+    B -->|Uses config and models| E[Pydantic models]
+    F[db-init job] --> G[(PostgreSQL)]
+    H[redpanda-init job] --> D
+    I[Redpanda Console] --> D
 ```
+
+## Services in Docker Compose
+
+- `db`: PostgreSQL 14 database.
+- `db-init`: one-shot initialization job that creates the SQLAlchemy schema.
+- `redpanda`: event streaming broker.
+- `redpanda-init`: one-shot initialization job that creates the `transactions.stream` topic.
+- `redpanda-console`: web UI for browsing brokers, topics, and messages at `http://localhost:8080`.
+- `api`: FastAPI application served by Uvicorn at `http://localhost:8000`.
+
+## API Behavior
+
+The main endpoint is `POST /generate_transaction`.
+
+- Requires the `X-Client-Token` header.
+- Generates a synthetic transaction using `TransactionGenerator`.
+- Publishes the transaction JSON to the `transactions.stream` topic in Redpanda.
+- Returns `202 Accepted` with the generated payload.
+
+The API root endpoint is `GET /` and returns a welcome message.
 
 ## Project Structure
 
 ```text
 finance-stream-engine/
-├── .env
-├── .python-version
-├── .venv/
-├── docker-compose.yml            # Infra services (PostgreSQL, Redis, Kafka, etc.)
-├── pyproject.toml                # Python project config and dependencies
-├── uv.lock
-├── README.md                     # Project documentation and architecture spec
+├── docker-compose.yml
+├── pyproject.toml
+├── README.md
 ├── src/
-│   ├── api/                      # FastAPI application and routing
-│   ├── database/                 # Database-related utilities and configuration
-│   ├── generator/                # Synthetic financial transaction generator
-│   └── models/                   # Pydantic schemas and domain models
-├── tests/
-│   └── generator/                # Unit tests for the transaction generator
-└── .pytest_cache/
+│   ├── api/
+│   │   └── v1/
+│   │       ├── app.py
+│   │       └── routes/
+│   ├── database/
+│   ├── generator/
+│   └── models/
+└── tests/
 ```
 
 ## Tech Stack
 
-- Language: Python 3.12+
-- Validation: Pydantic
-- API Framework: FastAPI / Uvicorn
-- Event Streaming: Apache Kafka / Zookeeper
-- Task Queue & Cache: Celery / Redis
-- Database: PostgreSQL
-- Load Balancing: NGINX
-- Testing: Pytest
+- Python 3.12
+- FastAPI
+- Uvicorn
+- Pydantic
+- SQLAlchemy
+- PostgreSQL
+- Redpanda
+- Redpanda Console
+- Confluent Kafka Python client
+- Pytest
 
-## Development Philosophy
+## Running the Stack
 
-This repository follows a strict Test-Driven Development (TDD) methodology. Every component, schema, endpoint, and worker must have corresponding unit or integration tests written before implementation.
+Start everything with Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+Useful endpoints:
+
+- API root: `http://localhost:8000/`
+- API docs: `http://localhost:8000/docs`
+- Redpanda Console: `http://localhost:8080`
+
+## Environment Variables
+
+The project expects an `.env` file with values like these:
+
+```env
+X_CLIENT_TOKEN=your-token
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=finance_stream_engine
+POSTGRES_HOST=localhost
+KAFKA_BROKER=localhost:9092
+```
+
+Inside Docker Compose, service-to-service communication uses internal hostnames such as `db` and `redpanda`. The Compose services override those host values where needed.
+
+## Local Development
+
+Install dependencies locally with `uv`:
+
+```bash
+uv sync
+```
+
+Run tests:
+
+```bash
+uv run pytest
+```
+
+Run the API outside Docker:
+
+```bash
+uv run uvicorn src.api.v1.app:app --reload
+```
