@@ -33,16 +33,17 @@ services:
 
   redpanda:
       image: docker.redpanda.com/redpandadata/redpanda:latest
-      container_name: queue
+      container_name: broker
       command:
         - redpanda
         - start
-        - --kafka-addr=PLAINTEXT://0.0.0.0:9092
-        - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+        - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+        - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
         - --rpc-addr=0.0.0.0:33145
         - --advertise-rpc-addr=redpanda:33145
       ports:
         - "9092:9092"
+        - "19092:19092"
         - "9644:9644"
       healthcheck:
         test: ["CMD-SHELL", "rpk cluster health >/dev/null 2>&1 || exit 1"]
@@ -55,7 +56,7 @@ services:
 
   redpanda-init:
     image: docker.redpanda.com/redpandadata/redpanda:latest
-    container_name: queue-init
+    container_name: broker-init
     depends_on:
       redpanda:
         condition: service_healthy
@@ -64,15 +65,14 @@ services:
       - -lc
     command:
       - |
-        until rpk cluster health >/dev/null 2>&1; do
-          sleep 2;
-        done
+        set -e
         rpk topic create transactions.stream -X brokers=redpanda:9092 -p 1 -r 1 --if-not-exists
+        rpk topic create transactions.dlq -X brokers=redpanda:9092 -p 1 -r 1 --if-not-exists
     restart: "no"
 
   redpanda-console:
     image: docker.redpanda.com/redpandadata/console:latest
-    container_name: queue-console
+    container_name: broker-console
     ports:
       - "8080:8080"
     environment:
@@ -102,6 +102,25 @@ services:
         condition: service_completed_successfully
       redpanda-init:
         condition: service_started
+
+  transaction-worker:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm
+    container_name: transaction-worker
+    working_dir: /app
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - KAFKA_GROUP_ID=postgres_write_group
+    command: >
+      sh -c "pip install python-dotenv sqlalchemy psycopg[binary] confluent-kafka && PYTHONPATH=. python src/workers/transaction_worker.py"
+    restart: always
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      redpanda-init:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
