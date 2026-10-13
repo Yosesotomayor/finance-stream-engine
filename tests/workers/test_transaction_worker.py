@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-# Importamos las funciones y excepciones de tu worker
 from src.workers.transaction_worker import process_transaction, PoisonPillError
 
 @patch("src.workers.transaction_worker.get_session")
