@@ -1,13 +1,11 @@
 import os
+import json
 
 from dotenv import find_dotenv, load_dotenv
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Header, HTTPException, status
+from confluent_kafka import Producer
 
 from src.generator.generator import TransactionGenerator
-
-from src.database.connection import get_db          
-from src.models.db_models import TransactionDBModel 
 
 import logging
 
@@ -16,12 +14,22 @@ load_dotenv(find_dotenv())
 
 router = APIRouter()
 CLIENT_TOKEN = os.environ["X_CLIENT_TOKEN"]
+KAFKA_BROKER = os.environ["KAFKA_BROKER"]
 
+producer_config = {
+      'bootstrap.servers': KAFKA_BROKER,
+}
+producer = Producer(producer_config)
 
-@router.post("/generate_transaction", tags=["Transactions"])
+def delivery_report(err, msg):
+      if err is not None:
+            logger.error(f"Delivery failed for record {msg.key()}: {err}")
+      else:
+            logger.info(f"Record {msg.key()} successfully produced to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
+
+@router.post("/generate_transaction", status_code=status.HTTP_202_ACCEPTED, tags=["Transactions"])
 async def generate_transaction(
     x_client_token: str | None = Header(default=None, alias="X-Client-Token"),
-    db: Session = Depends(get_db)
 ):
       if not x_client_token or x_client_token != CLIENT_TOKEN:
             raise HTTPException(
@@ -30,27 +38,27 @@ async def generate_transaction(
             )
 
       transaction = TransactionGenerator().generate_transaction()
+      transaction_dict = transaction.model_dump()
 
-      db_item = TransactionDBModel(
-            transaction_id=transaction.transaction_id,
-            user_id=transaction.user_id,
-            merchant_id=transaction.merchant_id,
-            amount=transaction.amount,
-            status=transaction.status,
-            timestamp=transaction.timestamp,
-      )
-      
+      topic = "transactions.stream"
+      key = transaction.transaction_id.encode("utf-8")
+
       try:
-            db.add(db_item)
-            db.commit()
-            db.refresh(db_item)
+            producer.produce(
+                  topic,
+                  key=key,
+                  value=transaction.model_dump_json().encode("utf-8"),
+                  callback=delivery_report,
+            )
+            producer.poll(0)  # Trigger delivery report callbacks
       except Exception as e:
-            db.rollback()
             raise HTTPException(
                   status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                  detail=f"Error saving transaction to the database: {e}",
+                  detail=f"Failed to produce message to Kafka: {str(e)}",
             )
 
-      logger.info(f"Transaction {transaction.transaction_id} generated and saved to the database.")
-
-      return {"transaction": transaction.model_dump()}
+      return {
+            "status": "accepted",
+            "message": "Transaction event published to stream successfully",
+            "transaction": transaction_dict
+    }
