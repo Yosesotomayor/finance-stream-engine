@@ -5,6 +5,7 @@ description = "This is a personal project in order to learn new technologies."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "confluent-kafka>=2.16.0",
     "faker>=40.43.0",
     "fastapi[standard]>=0.143.0",
     "numpy>=2.5.4",
